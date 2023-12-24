@@ -24,6 +24,7 @@ namespace LoadBalancer
             services.AddSwaggerGen();
 
             services.AddHttpClient();
+            services.AddMemoryCache();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -33,16 +34,20 @@ namespace LoadBalancer
             {
                 app.UseDeveloperExceptionPage();
                 app.UseSwagger();
-                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1"));
-
-                app.UseMiddleware<RequestLoggingMiddleware>();
+                app.UseSwaggerUI(c =>
+                {
+                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1");
+                });
             }
+
+            app.UseMiddleware<ExceptionMiddleware>();
+            app.UseMiddleware<RequestRateLimitingMiddleware>();
+            app.UseMiddleware<RequestLoggingMiddleware>();
+            app.UseMiddleware<RequestForwardingMiddleware>();
 
             app.UseHttpsRedirection();
 
             app.UseRouting();
-            
-            app.UseMiddleware<RequestForwardingMiddleware>();
 
             app.UseAuthorization();
 
