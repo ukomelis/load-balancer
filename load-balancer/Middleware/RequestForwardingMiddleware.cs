@@ -3,11 +3,29 @@ using System.Text;
 
 namespace LoadBalancer.Middleware
 {
-    public class RequestForwardingMiddleware(RequestDelegate next, IHttpClientFactory httpClientFactory, ILogger<RequestForwardingMiddleware> logger)
+    public class RequestForwardingMiddleware
     {
-        private readonly RequestDelegate _next = next;
-        private readonly HttpClient _httpClient = httpClientFactory.CreateClient();
-        private readonly ILogger<RequestForwardingMiddleware> _logger = logger;
+        private readonly HttpClient _httpClient;
+        private readonly ILogger<RequestForwardingMiddleware> _logger;
+
+        private readonly List<string> _serverPool =
+        [
+            "http://localhost:4000",
+            "http://localhost:4001",
+            "http://localhost:4002",
+            // Add more servers as needed
+        ];
+
+        private int _lastServerUsed = 0;
+        private Timer _healthCheckTimer;
+        private List<string> _offlineServers = new List<string>();
+
+        public RequestForwardingMiddleware(RequestDelegate next, IHttpClientFactory httpClientFactory, ILogger<RequestForwardingMiddleware> logger)
+        {
+            _logger = logger;
+            _httpClient = httpClientFactory.CreateClient();
+            _healthCheckTimer = new Timer(CheckServerHealth, null, 0, 15000);
+        }
 
         public async Task Invoke(HttpContext context)
         {
@@ -19,8 +37,13 @@ namespace LoadBalancer.Middleware
 
                 _logger.LogInformation("Forwarding request: {Method} {Path}", method, path);
 
+                // Select a server using round-robin strategy
+                var server = _serverPool[_lastServerUsed];
+                _lastServerUsed = (_lastServerUsed + 1) % _serverPool.Count;
+
                 // Create a new HttpRequestMessage
-                using var forwardRequest = new HttpRequestMessage(new HttpMethod(method), "http://localhost:4001" + path);
+                using var forwardRequest = new HttpRequestMessage(new HttpMethod(method), server + path);
+        
 
                 // Forward the request headers
                 foreach (var header in request.Headers)
@@ -70,6 +93,49 @@ namespace LoadBalancer.Middleware
                 _logger.LogError(ex, "An error occurred while forwarding the request.");
                 // Handle the exception or rethrow it if necessary
                 //throw;
+            }
+        }
+
+        private async void CheckServerHealth(object? state)
+        {
+            for (int i = _serverPool.Count - 1; i >= 0; i--)
+            {
+                var server = _serverPool[i];
+                try
+                {
+                    var response = await _httpClient.GetAsync(server);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Removing server {Server} from pool due to failed health check", server);
+                        _offlineServers.Add(server);
+                        _serverPool.RemoveAt(i);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Removing server {Server} from pool due to failed health check", server);
+                    _offlineServers.Add(server);
+                    _serverPool.RemoveAt(i);
+                }
+            }
+
+            for (int i = _offlineServers.Count - 1; i >= 0; i--)
+            {
+                var server = _offlineServers[i];
+                try
+                {
+                    var response = await _httpClient.GetAsync(server);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        _logger.LogInformation("Adding server {Server} back to pool after successful health check", server);
+                        _serverPool.Add(server);
+                        _offlineServers.RemoveAt(i);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed health check for offline server {Server}", server);
+                }
             }
         }
     }

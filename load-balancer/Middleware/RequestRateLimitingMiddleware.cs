@@ -16,9 +16,9 @@ namespace LoadBalancer.Middleware
 
         public async Task Invoke(HttpContext context)
         {
-            var ipAddress = context.Connection.RemoteIpAddress.ToString();
+            var ipAddress = context.Connection.RemoteIpAddress?.ToString();
 
-            if (_cache.TryGetValue(ipAddress, out int requestCount))
+            if (ipAddress != null && _cache.TryGetValue(ipAddress, out int requestCount))
             {
                 if (requestCount >= _requestLimit)
                 {
@@ -31,7 +31,7 @@ namespace LoadBalancer.Middleware
                     _cache.Set(ipAddress, requestCount + 1, _expirationTime);
                 }
             }
-            else
+            else if (ipAddress != null)
             {
                 _cache.Set(ipAddress, 1, _expirationTime);
             }
