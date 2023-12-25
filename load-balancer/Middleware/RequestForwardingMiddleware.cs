@@ -16,6 +16,15 @@ namespace LoadBalancer.Middleware
             // Add more servers as needed
         ];
 
+        // Uncomment this to use Docker host networking
+        // private readonly List<string> _serverPool =
+        // [
+        //     "http://host.docker.internal:4000",
+        //     "http://host.docker.internal:4001",
+        //     "http://host.docker.internal:4002",
+        //     // Add more servers as needed
+        // ];
+
         private int _lastServerUsed = 0;
         private Timer _healthCheckTimer;
         private List<string> _offlineServers = new List<string>();
@@ -24,7 +33,7 @@ namespace LoadBalancer.Middleware
         {
             _logger = logger;
             _httpClient = httpClientFactory.CreateClient();
-            _healthCheckTimer = new Timer(CheckServerHealth, null, 0, 15000);
+            _healthCheckTimer = new Timer(CheckServerHealth, null, 0, 1000 * 60 * 5); // Check server health every 5 minutes
         }
 
         public async Task Invoke(HttpContext context)
